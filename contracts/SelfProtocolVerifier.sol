@@ -101,12 +101,12 @@ contract SelfProtocolVerifier is SelfVerificationRoot, Ownable {
         verifications[user] = UserVerification({
             isVerified: true,
             verifiedAt: block.timestamp,
-            nullifier: output.nullifier,
+            nullifier: bytes32(output.nullifier),
             age: 0, // Extract from output if needed
             nationality: "" // Extract from output if needed
         });
         
-        emit UserVerified(user, output.nullifier, block.timestamp);
+        emit UserVerified(user, bytes32(output.nullifier), block.timestamp);
     }
     
     /* ========== PUBLIC VIEW FUNCTIONS ========== */

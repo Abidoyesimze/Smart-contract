@@ -23,7 +23,7 @@ library DeployConfig {
             cUSD: 0x765DE816845861e75A25fCA122bb6898B8B1282a,
             // TODO: Get from Aave Address Book or official docs
             aavePoolAddressesProvider: address(0), // MUST UPDATE BEFORE DEPLOYMENT
-            selfHubV2: 0x1a7E0033C45F2663BEc7A49eC1d2E4eB2C7acF81
+            selfHubV2: 0x1A7e0033c45f2663bec7A49ec1D2e4eb2C7ACf81
         });
     }
     
@@ -33,7 +33,7 @@ library DeployConfig {
         return CeloAddresses({
             cUSD: 0x874069Fa1Eb16D44d622F2e0Ca25eeA172369bC1, // Alfajores cUSD
             aavePoolAddressesProvider: address(0), // MUST UPDATE
-            selfHubV2: 0x18E05EAc6f31D03Fb188fDc8e72ff354AB24Eab6
+            selfHubV2: 0x18E05eAC6F31d03fb188FDc8e72FF354aB24EaB6
         });
     }
     

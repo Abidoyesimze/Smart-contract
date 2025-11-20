@@ -6,6 +6,7 @@ import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {IPool} from "@aave/core-v3/contracts/interfaces/IPool.sol";
 import {IPoolAddressesProvider} from "@aave/core-v3/contracts/interfaces/IPoolAddressesProvider.sol";
+import {DataTypes} from "@aave/core-v3/contracts/protocol/libraries/types/DataTypes.sol";
 
 /**
  * @title AaveV3Strategy
@@ -165,33 +166,26 @@ contract AaveV3Strategy is Ownable {
     }
     
     /**
-     * @notice Get reserve data from Aave
-     * @return Configuration and liquidity data
+     * @notice Get simplified reserve data from Aave
      */
-    function getReserveData() external view returns (
-        uint256 availableLiquidity,
-        uint256 totalStableDebt,
-        uint256 totalVariableDebt,
-        uint256 liquidityRate,
-        uint256 variableBorrowRate,
-        uint256 stableBorrowRate,
-        uint256 averageStableBorrowRate,
-        uint256 liquidityIndex,
-        uint256 variableBorrowIndex,
-        uint40 lastUpdateTimestamp
-    ) {
-        IPool.ReserveData memory data = aavePool.getReserveData(address(asset));
-        
+    function getReserveData()
+        external
+        view
+        returns (
+            uint128 liquidityIndex,
+            uint128 liquidityRate,
+            uint128 variableBorrowRate,
+            uint128 stableBorrowRate,
+            uint40 lastUpdateTimestamp
+        )
+    {
+        DataTypes.ReserveData memory data = aavePool.getReserveData(address(asset));
+
         return (
-            data.unbacked,
-            data.accruedToTreasuryScaled,
-            data.isolationModeTotalDebt,
+            data.liquidityIndex,
             data.currentLiquidityRate,
             data.currentVariableBorrowRate,
             data.currentStableBorrowRate,
-            0, // averageStableBorrowRate not directly available
-            data.liquidityIndex,
-            data.variableBorrowIndex,
             data.lastUpdateTimestamp
         );
     }

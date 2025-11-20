@@ -9,6 +9,8 @@ import "@openzeppelin/contracts-upgradeable/utils/PausableUpgradeable.sol";
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 
+import "./IAave.sol";
+
 /**
  * @title AttestifyVault
  * @notice Main vault contract for yield generation with identity verification
@@ -53,6 +55,8 @@ contract AttestifyVault is
     uint256 public maxUserDeposit;                      // Per user limit
     uint256 public maxTotalDeposit;                     // Total TVL limit
     uint256 public constant RESERVE_RATIO = 10;         // 10% kept in vault
+    uint256 private constant VIRTUAL_SHARES = 1e3;      // Virtual liquidity to harden share price
+    uint256 private constant VIRTUAL_ASSETS = 1e3;
     
     // Admin
     address public treasury;
@@ -81,6 +85,9 @@ contract AttestifyVault is
     error InsufficientShares();
     error InsufficientBalance();
     error ZeroAddress();
+    error ExceedsBalance();
+    error SlippageTooHigh();
+    error StrategyDepositMismatch(uint256 expected, uint256 actual);
     
     /* ========== CONSTRUCTOR ========== */
     
@@ -139,12 +146,7 @@ contract AttestifyVault is
     /* ========== MODIFIERS ========== */
     
     modifier onlyVerified() {
-        // Call verifier contract to check
-        (bool success, bytes memory data) = verifier.staticcall(
-            abi.encodeWithSignature("isVerified(address)", msg.sender)
-        );
-        
-        if (!success || !abi.decode(data, (bool))) {
+        if (!ISelfVerifier(verifier).isVerified(msg.sender)) {
             revert NotVerified();
         }
         _;
@@ -200,10 +202,10 @@ contract AttestifyVault is
             asset.forceApprove(strategy, deployAmount);
             
             // Call strategy deposit
-            (bool success,) = strategy.call(
-                abi.encodeWithSignature("deposit(uint256)", deployAmount)
-            );
-            require(success, "Strategy deposit failed");
+            uint256 deposited = IVaultYieldStrategy(strategy).deposit(deployAmount);
+            if (deposited != deployAmount) {
+                revert StrategyDepositMismatch(deployAmount, deposited);
+            }
         }
     }
     
@@ -211,59 +213,90 @@ contract AttestifyVault is
     
     /**
      * @notice Withdraw cUSD (principal + yield)
-     * @param assets Amount to withdraw
+     * @param assets Requested assets to withdraw
      * @return sharesBurned Shares burned
      */
-    function withdraw(uint256 assets) 
-        external 
-        nonReentrant 
+    function withdraw(uint256 assets) external returns (uint256 sharesBurned) {
+        return withdraw(assets, assets);
+    }
+    
+    /**
+     * @notice Withdraw with slippage/deadline style guard
+     * @param assets Requested assets to withdraw
+     * @param minAssetsOut Minimum acceptable assets after share conversion
+     */
+    function withdraw(uint256 assets, uint256 minAssetsOut)
+        public
+        nonReentrant
         returns (uint256 sharesBurned)
     {
-        // Calculate shares to burn
-        sharesBurned = _convertToShares(assets);
-        if (shares[msg.sender] < sharesBurned) revert InsufficientShares();
-        
-        // Update state
-        shares[msg.sender] -= sharesBurned;
-        totalShares -= sharesBurned;
-        userData[msg.sender].totalWithdrawn += assets;
-        userData[msg.sender].lastActionTime = block.timestamp;
-        totalWithdrawn += assets;
-        
-        // Check reserve
-        uint256 reserveBalance = asset.balanceOf(address(this));
-        
-        // Withdraw from strategy if needed
-        if (reserveBalance < assets) {
-            uint256 shortfall = assets - reserveBalance;
-            _withdrawFromStrategy(shortfall);
-        }
-        
-        // Transfer to user
-        asset.safeTransfer(msg.sender, assets);
-        
-        emit Withdrawn(msg.sender, assets, sharesBurned);
+        return _processWithdraw(msg.sender, assets, minAssetsOut);
     }
     
     /**
      * @notice Withdraw all user's balance
      */
-    function withdrawAll() external {
+    function withdrawAll() external returns (uint256 sharesBurned) {
         uint256 userAssets = balanceOf(msg.sender);
-        this.withdraw(userAssets);
+        return withdraw(userAssets, userAssets);
     }
     
     /**
      * @notice Internal function to withdraw from strategy
      */
     function _withdrawFromStrategy(uint256 amount) internal {
-        (bool success, bytes memory data) = strategy.call(
-            abi.encodeWithSignature("withdraw(uint256)", amount)
-        );
-        require(success, "Strategy withdraw failed");
-        
-        uint256 received = abi.decode(data, (uint256));
+        uint256 received = IVaultYieldStrategy(strategy).withdraw(amount);
         if (received < amount) revert InsufficientBalance();
+    }
+
+    function _processWithdraw(
+        address user,
+        uint256 assets,
+        uint256 minAssetsOut
+    ) internal returns (uint256 sharesBurned) {
+        if (assets == 0) revert InvalidAmount();
+
+        uint256 maxWithdraw = balanceOf(user);
+        if (assets > maxWithdraw) revert ExceedsBalance();
+
+        sharesBurned = _convertToShares(assets);
+        if (shares[user] < sharesBurned) revert InsufficientShares();
+
+        uint256 assetsOut = _convertToAssets(sharesBurned);
+        if (assetsOut < minAssetsOut) revert SlippageTooHigh();
+
+        shares[user] -= sharesBurned;
+        totalShares -= sharesBurned;
+
+        userData[user].totalWithdrawn += assetsOut;
+        userData[user].lastActionTime = block.timestamp;
+        totalWithdrawn += assetsOut;
+
+        uint256 reserveBalance = asset.balanceOf(address(this));
+
+        if (reserveBalance < assetsOut) {
+            uint256 shortfall = assetsOut - reserveBalance;
+            _withdrawFromStrategy(shortfall);
+        }
+
+        asset.safeTransfer(user, assetsOut);
+
+        _ensureReserveRatio();
+
+        emit Withdrawn(user, assetsOut, sharesBurned);
+    }
+
+    function _ensureReserveRatio() internal {
+        uint256 _totalAssets = totalAssets();
+        if (_totalAssets == 0) return;
+
+        uint256 targetReserve = (_totalAssets * RESERVE_RATIO) / 100;
+        uint256 currentReserve = asset.balanceOf(address(this));
+
+        if (currentReserve < targetReserve) {
+            uint256 shortfall = targetReserve - currentReserve;
+            _withdrawFromStrategy(shortfall);
+        }
     }
     
     /* ========== VIEW FUNCTIONS ========== */
@@ -275,12 +308,14 @@ contract AttestifyVault is
     function totalAssets() public view returns (uint256) {
         uint256 reserveBalance = asset.balanceOf(address(this));
         
-        // Get strategy balance
-        (bool success, bytes memory data) = strategy.staticcall(
-            abi.encodeWithSignature("totalAssets()")
-        );
-        
-        uint256 strategyBalance = success ? abi.decode(data, (uint256)) : 0;
+        uint256 strategyBalance = 0;
+        if (strategy != address(0)) {
+            try IVaultYieldStrategy(strategy).totalAssets() returns (uint256 balance) {
+                strategyBalance = balance;
+            } catch {
+                strategyBalance = 0;
+            }
+        }
         
         return reserveBalance + strategyBalance;
     }
@@ -314,9 +349,9 @@ contract AttestifyVault is
      * @notice Convert assets to shares
      */
     function _convertToShares(uint256 assets) internal view returns (uint256) {
-        uint256 _totalAssets = totalAssets();
-        if (totalShares == 0 || _totalAssets == 0) return assets;
-        return (assets * totalShares) / _totalAssets;
+        uint256 adjustedShares = totalShares + VIRTUAL_SHARES;
+        uint256 adjustedAssets = totalAssets() + VIRTUAL_ASSETS;
+        return (assets * adjustedShares) / adjustedAssets;
     }
     
     /**
@@ -324,7 +359,9 @@ contract AttestifyVault is
      */
     function _convertToAssets(uint256 _shares) internal view returns (uint256) {
         if (totalShares == 0) return 0;
-        return (_shares * totalAssets()) / totalShares;
+        uint256 adjustedShares = totalShares + VIRTUAL_SHARES;
+        uint256 adjustedAssets = totalAssets() + VIRTUAL_ASSETS;
+        return (_shares * adjustedAssets) / adjustedShares;
     }
     
     /* ========== REBALANCE ========== */
@@ -352,10 +389,14 @@ contract AttestifyVault is
         lastRebalance = block.timestamp;
         
         // Get updated balances
-        (bool success, bytes memory data) = strategy.staticcall(
-            abi.encodeWithSignature("totalAssets()")
-        );
-        uint256 strategyBalance = success ? abi.decode(data, (uint256)) : 0;
+        uint256 strategyBalance = 0;
+        if (strategy != address(0)) {
+            try IVaultYieldStrategy(strategy).totalAssets() returns (uint256 balance) {
+                strategyBalance = balance;
+            } catch {
+                strategyBalance = 0;
+            }
+        }
         
         emit Rebalanced(strategyBalance, asset.balanceOf(address(this)), block.timestamp);
     }

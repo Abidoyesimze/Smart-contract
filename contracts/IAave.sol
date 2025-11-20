@@ -36,3 +36,13 @@ interface IAttestifyVault {
     function totalAssets() external view returns (uint256);
     function getEarnings(address user) external view returns (uint256);
 }
+
+/**
+ * @title IVaultYieldStrategy
+ * @notice Minimal strategy interface consumed by the vault
+ */
+interface IVaultYieldStrategy {
+    function deposit(uint256 amount) external returns (uint256);
+    function withdraw(uint256 amount) external returns (uint256);
+    function totalAssets() external view returns (uint256);
+}
