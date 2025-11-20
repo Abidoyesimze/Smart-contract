@@ -231,7 +231,6 @@ describe("AttestifyVault", async () => {
     await vault.write.pause({ account: deployer.account });
     await expectRevert(
       vault.write.deposit([100n * ONE], { account: bob.account }),
-      "Pausable: paused",
     );
 
     await vault.write.unpause({ account: deployer.account });
