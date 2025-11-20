@@ -21,9 +21,8 @@ library DeployConfig {
     function getCeloMainnet() internal pure returns (CeloAddresses memory) {
         return CeloAddresses({
             cUSD: 0x765DE816845861e75A25fCA122bb6898B8B1282a,
-            // TODO: Get from Aave Address Book or official docs
-            aavePoolAddressesProvider: address(0), // MUST UPDATE BEFORE DEPLOYMENT
-            selfHubV2: 0x1A7e0033c45f2663bec7A49ec1D2e4eb2C7ACf81
+            aavePoolAddressesProvider: 0x9F7Cf9417D5251C59fE94fB9147feEe1aAd9Cea5,
+            selfHubV2: 0xe57F4773bd9c9d8b6Cd70431117d353298B9f5BF
         });
     }
     

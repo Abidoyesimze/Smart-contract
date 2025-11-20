@@ -5,7 +5,9 @@
   "main": "index.js",
   "scripts": {
     "test": "hardhat test",
-    "deploy": "hardhat run scripts/deploy-vault.ts"
+    "deploy": "hardhat run scripts/deploy-vault.ts",
+    "deploy:verifier": "hardhat run scripts/deploy-verifier.ts",
+    "query-aave": "hardhat run scripts/query-aave-addresses.ts"
   },
   "repository": {
     "type": "git",
