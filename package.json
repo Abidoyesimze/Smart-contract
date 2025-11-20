@@ -4,7 +4,8 @@
   "description": "This is the V1 Attestify Smart contract",
   "main": "index.js",
   "scripts": {
-    "test": "hardhat test"
+    "test": "hardhat test",
+    "deploy": "hardhat run scripts/deploy-vault.ts"
   },
   "repository": {
     "type": "git",
@@ -23,6 +24,7 @@
     "@nomicfoundation/hardhat-toolbox-viem": "^5.0.1",
     "@types/node": "^22.19.1",
     "forge-std": "github:foundry-rs/forge-std#v1.9.4",
+    "dotenv": "^16.4.5",
     "hardhat": "^3.0.15",
     "typescript": "~5.8.0",
     "viem": "^2.39.3"
